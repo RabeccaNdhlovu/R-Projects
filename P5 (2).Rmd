@@ -1,0 +1,214 @@
+---
+title: "Project 5"
+author: "Rahima, Rabecca, Cherish,Shonosuke"
+output: html_document
+---
+#We used the html you sent to answer the questions.
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(readr)
+library(lattice)
+library(lubridate)
+library(ggplot2)
+library(dplyr)
+library(leaflet)
+library(geosphere)
+
+Stations <-read_csv('https://mcsp.wartburg.edu/letsche/cs205/DC-Stations.csv')
+
+data_site <-'https://mcsp.wartburg.edu/letsche/cs205/Bike2023-Small.rds'
+Trips <- read_rds(data_site)
+```
+
+## Biking Data
+
+```{r Trips}
+
+
+new = Trips %>% 
+  mutate(duration_min = as.numeric(edate - sdate)) ## Duration is in minutes
+new = new %>% 
+  mutate(duration_hrs = (duration_min / 60)) 
+lower <- quantile(new$duration_hrs, 0.05)
+upper <- quantile(new$duration_hrs, 0.95)
+new <- new %>%  filter(duration_hrs >= lower & duration_hrs <= upper)
+```
+
+```{r BoxPlot}
+
+new %>%
+ ggplot(aes(x = client, y = duration_hrs, fill = client)) + geom_boxplot() + ggtitle("Distribution of Bike Rental Durations") + xlab("Client") + ylab("Duration") + theme_minimal()
+```
+
+##Question 2
+The median time that the bikes are used is 9minutes for members and 14minutes for casuals. The upper quantile for the causal clients are much larger than the members.Where members have more outliers than clients
+
+```{r Hour of Day}
+test = Trips %>% 
+  mutate(Day_of_Year = yday(sdate), 
+         Day_of_Week = wday(sdate), 
+         Hour_of_Day = hour(sdate), 
+         Minute_in_Hour = minute(sdate))
+
+ggplot(test, aes(x = `Hour_of_Day`, fill = client)) +
+  geom_histogram(position = "dodge", bins = 24, alpha = 0.7) +
+  labs(title = "Client Distribution (Hour of the Day)",
+       x = "Hour of the Day",
+       y = "Frequency") +
+  theme_minimal()
+```
+# There is a generally more fluatuations in the member use of the bike every hour of the day. Casual clients see an increase from the 4th hour and reach their peak at the 17th hour of the day. Member clients peak is at the 17.5th hour of the day.
+
+
+
+```{r Minute in Hour}
+
+ggplot(test, aes(x = `Minute_in_Hour`, fill = client)) +
+  geom_histogram(position = "dodge", bins = 60, alpha = 0.7) +
+  labs(title = " Client Distribution (Minute in the Hour) ",
+       x = "Minute in the Hour",
+       y = "Frequency") +
+  theme_minimal()
+```
+# There in a more steady use of bike with ever minute in an hours.Unlike member clients,casual clients have a steady fluatuation. The frequency of bikes used by casual clients is below 30,000 while member clients is between 45,000 and higher.However the pattern in frequency is similar.
+
+```{r Day of Week}
+ggplot(test, aes(x = `Day_of_Week`, fill = client)) +
+  geom_bar(position = "dodge", alpha = 0.7) +
+  labs(title = " Client Distribution (Day of the Week)",
+       x = "Day of the Week",
+       y = "Frequency") +
+  theme_minimal()
+```
+# Member clients rents the bike more times in the week regardless of the day, whereas, casual members use the bikes more the 1st and 7th day of the week. Member clients have a more consistent every day of the week. The members used the bikes more on the 4th day of the week.
+
+
+```{r Day of Year}
+ggplot(test, aes(x = Day_of_Year, fill = client)) +
+  geom_histogram(position = "dodge", bins = 30, alpha = 0.7) +
+  labs(title = "  Client Distribution(Days of the Year)",
+       x = "Day of the Year",
+       y = "Frequency") +
+  theme_minimal()
+```
+# Member clients rents the bike more frequently than casual clients with there being an increase in ever day of the year. Member bike rental reaches its peak at after the 300th day.Casual clients have more fluatuation in their usage of the bikes with there being periods of increase and decrease.
+
+```{r Combination Plot}
+test %>% group_by(Hour_of_Day, Day_of_Week, client) %>% 
+  summarise(count = n()) %>% 
+  ggplot(aes(x = Hour_of_Day, y = count)) + 
+  ## geom_point() + 
+  geom_line(aes(colour = client)) +
+  facet_wrap(~Day_of_Week, ncol = 4, labeller = label_both) +
+  xlab("Hour of the Day")
+```
+
+#Question 3
+Considering Day 1 of the week a Sunday, the graph shows that the bikes might be used during rush hours which is usually 5th-10th and 15th-18th hours of the day during weekdays mostly, but during weekends bikes used half the times as weekdays.Members use the bikes more than causal rentals everyday of the week.The highest spike falls between the 15th and 20th hours of the day
+
+```{r Combination Density}
+test %>% ggplot(aes(x = Hour_of_Day)) +
+  geom_density(aes(colour = client)) +
+  facet_wrap(~Day_of_Week, ncol = 4, labeller = label_both) +
+  xlab("Hour of the Day")
+```
+#Question 3
+Although their numbers might be significantly different, the member's and casual's density plots look as though their densities are almost the same.There are some differences in the density between the peak hours for the casual and member rental.
+
+```{r Merging}
+
+Simple <- Stations %>% select(name, lat, long) %>% rename( sstation = name )
+Simple2 <- Simple %>% rename( estation = sstation, lat2 = lat, long2 = long)
+
+source("https://mcsp.wartburg.edu/letsche/cs205/haversine.R")
+
+merge(head(Simple, 4), head(Simple2, 3), by = NULL)
+```
+```{r FullOuterJoin}
+StationPairs = merge(Simple, Simple2, by = NULL)
+nrow(StationPairs) 
+```
+
+# Question 5
+```{r}
+nrow(Simple)*nrow(Simple2)
+```
+
+
+#Question 6
+# Simple and Simple2 had  their station variable changed to match the variable name in trips so that it can be easy to perform an inner join on the StationPairs and trips tables. 
+
+
+```{r Pair Distances}
+PairDistances <- StationPairs %>%
+    mutate( distance = haversine( lat, long, lat2, long2 )) %>%
+    select( sstation, estation, distance)
+
+Trips_Distance <- Trips %>% left_join(PairDistances, by=c("sstation", "estation"))
+Trips_Distance <- Trips_Distance %>% filter(!is.na(distance))
+
+median_distance_df <- Trips_Distance %>%
+  group_by(sstation) %>% 
+  summarise(median_distance_meters = median(distance * 1000, na.rm = TRUE))
+  merged_df <- inner_join(Trips_Distance, median_distance_df, by = "sstation")
+subset_df <- merged_df %>% slice_head(n = 10000)
+
+hist(PairDistances$distance, main = "Station-to-Station Distances", 
+     xlab = "Distance (km)", ylab = "Frequency", col = "skyblue", border = "black")
+
+ggplot() +
+  geom_density(data = Trips_Distance, aes(x = distance), fill = "gray", alpha = 0.5) +
+  geom_density(data = PairDistances, aes(x = distance), fill = "green", alpha = 0.5) +
+  labs(title = "Distances and Station Pair Distances Comparison",
+       x = "Distance (km)",
+       y = "Density",
+       fill = "Dataset") +
+  theme_minimal() +
+  scale_fill_manual(values = c("gray", "green"), labels = c(" Distances", "Station Pair Distances Comparison"))
+
+```
+
+
+# Question 7
+The distance between the pairs of stations is concentrated between 0-10km while most trips lengths are concentrated between below 3km.The stations that are untiled the most are those with a distance difference  between 0 - 7ish km with a decline in trips starting at around 4.8ish km. The distance between pairs of stations are are below 37km with the peak being between 0 and 10km.Although both graphs are  concentrated between 0 and 10km, they are not similar in their distribution.
+
+```{r RideDistances, message = FALSE}
+RideDistances = Trips %>% 
+  inner_join(PairDistances)
+```
+
+
+
+```{r StationMap, message = FALSE}
+stationMap <- leaflet(Stations) %>%
+  addTiles() %>% 
+  addCircleMarkers(radius = 2, color = "red") %>% 
+  setView(-77.04, 38.9, zoom = 12)
+
+stationMap
+```
+
+
+# Question 8
+#It hard to tell the relationship between stations and median distances as there is alot of overlapping on the graph.
+
+```{r StationMap2, message = FALSE}
+
+stationMap2<-leaflet( Stations ) %>% addTiles() %>% addCircleMarkers( radius = 2, color = "red" ) %>%
+  setView( -77.04, 38.9, zoom = 12)
+
+leaflet(Stations) %>% addTiles() %>% addCircleMarkers(radius = 2, color = "red") %>% 
+  setView(-77.04, 38.9, zoom = 12) %>%
+  addCircles(data = 
+    subset_df,
+    lng = ~start_lng,  
+    lat = ~start_lat,  
+    radius = ~median_distance_meters/2, 
+    color = "blue", 
+    opacity = 0.5,
+    fill = FALSE
+  )
+```
